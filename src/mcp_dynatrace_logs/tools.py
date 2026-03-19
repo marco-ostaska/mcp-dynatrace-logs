@@ -48,12 +48,13 @@ async def fetch_logs(
         state = data.get("state")
 
         if state == "SUCCEEDED":
-            records = data.get("records", [])
+            result_block = data.get("result", data)
+            records = result_block.get("records", [])
             return {
                 "state": "SUCCEEDED",
                 "records": records,
                 "metadata": {
-                    "total": data.get("totalCount", len(records)),
+                    "total": result_block.get("totalCount", len(records)),
                     "returned": len(records),
                     "request_token": request_token,
                 },
@@ -108,7 +109,8 @@ async def poll_query(client: DynatraceClient, request_token: str) -> dict:
         result["progress"] = data["progress"]
 
     if state == "SUCCEEDED":
-        result["records"] = data.get("records", [])
+        result_block = data.get("result", data)
+        result["records"] = result_block.get("records", [])
     elif state == "FAILED":
         error = data.get("error", {})
         result["error"] = error.get("message", str(error)) if isinstance(error, dict) else str(error)
