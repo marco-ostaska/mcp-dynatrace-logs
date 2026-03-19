@@ -44,6 +44,43 @@ Add to `~/.config/claude/claude_desktop_config.json`:
 }
 ```
 
+### 5. Claude Code (CLI) integration
+
+```bash
+claude mcp add dynatrace-logs \
+  --env DYNATRACE_URL=https://your-tenant.apps.dynatrace.com \
+  --env DYNATRACE_API_TOKEN=dt0s16.XXXX.YYYY \
+  uv run --directory /path/to/mcp-dynatrace-logs mcp-dynatrace-logs
+```
+
+Verify the server is registered:
+
+```bash
+claude mcp list
+```
+
+### 6. GitHub Copilot (VS Code) integration
+
+Create or edit `.vscode/mcp.json` in your workspace:
+
+```json
+{
+  "servers": {
+    "dynatrace-logs": {
+      "type": "stdio",
+      "command": "uv",
+      "args": ["run", "--directory", "/path/to/mcp-dynatrace-logs", "mcp-dynatrace-logs"],
+      "env": {
+        "DYNATRACE_URL": "https://your-tenant.apps.dynatrace.com",
+        "DYNATRACE_API_TOKEN": "dt0s16.XXXX.YYYY"
+      }
+    }
+  }
+}
+```
+
+Requires VS Code 1.99+ with GitHub Copilot extension. Enable MCP support via `"chat.mcp.enabled": true` in VS Code settings if not already active.
+
 ## Tools
 
 ### `fetch_logs`
