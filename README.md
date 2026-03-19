@@ -50,7 +50,7 @@ Add to `~/.config/claude/claude_desktop_config.json`:
 claude mcp add dynatrace-logs \
   --env DYNATRACE_URL=https://your-tenant.apps.dynatrace.com \
   --env DYNATRACE_API_TOKEN=dt0s16.XXXX.YYYY \
-  uv run --directory /path/to/mcp-dynatrace-logs mcp-dynatrace-logs
+  -- uv run --directory /path/to/mcp-dynatrace-logs mcp-dynatrace-logs
 ```
 
 Verify the server is registered:
