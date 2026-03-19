@@ -97,9 +97,13 @@ Executes a DQL query and polls until results are ready.
 
 ```
 fetch logs | limit 100
-fetch logs | filter context="*my-service*" | limit 50
-fetch logs | filter status="ERROR" | fields timestamp, content | limit 200
+fetch logs | filter contains(content, "my-service") | limit 50
+fetch logs, from:now()-24h | filter contains(content, "retry-stuck") | fields timestamp, content | limit 100
+fetch logs, from:now()-3d | filter status="ERROR" | fields timestamp, content | limit 200
 ```
+
+> **Tip:** Use `from:now()-Xh` / `from:now()-Xd` directly in the DQL query to control the search
+> window. This is more reliable than the `timeframe` parameter.
 
 **Response states:** `SUCCEEDED`, `FAILED`, `TIMEOUT`, `ERROR`
 

@@ -1,9 +1,10 @@
 import json
+import re
 from urllib.parse import unquote
 import pytest
 import httpx
 import respx
-from mcp_dynatrace_logs.client import DynatraceClient
+from mcp_dynatrace_logs.client import DynatraceClient, _timeframe_to_iso
 
 BASE_URL = "https://test.dynatrace.com"
 TOKEN = "test-token"
@@ -31,7 +32,18 @@ async def test_execute_with_timeframe(client):
     await client.execute("fetch logs | limit 10", timeframe="3d")
     body = route.calls[0].request.read()
     parsed = json.loads(body)
-    assert parsed["defaultTimeframeStart"] == "now()-3d"
+    # Must be an ISO 8601 timestamp, not a DQL expression like "now()-3d"
+    assert re.match(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", parsed["defaultTimeframeStart"])
+
+
+def test_timeframe_to_iso_format():
+    iso = _timeframe_to_iso("24h")
+    assert re.match(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", iso)
+
+
+def test_timeframe_to_iso_invalid():
+    with pytest.raises(ValueError, match="Invalid timeframe"):
+        _timeframe_to_iso("bad")
 
 
 @respx.mock

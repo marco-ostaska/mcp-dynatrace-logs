@@ -40,8 +40,13 @@ async def fetch_logs(
     Execute a DQL query against Dynatrace logs and return results.
 
     Args:
-        query: Full DQL string, e.g. "fetch logs | filter context=\"*xxx*\" | limit 100"
-        timeframe: Optional time offset like "3d" or "1h". Added as defaultTimeframeStart.
+        query: Full DQL string, e.g. "fetch logs | filter contains(content, \"retry-stuck\") | limit 100"
+               To search across a wider time range, embed the timeframe directly in the query using
+               DQL syntax: "fetch logs, from:now()-24h | filter contains(content, \"retry-stuck\")"
+               This is the most reliable way to control the search window.
+        timeframe: Optional time offset like "3d" or "1h". Converted to an ISO 8601 timestamp and
+                   sent as defaultTimeframeStart. Prefer embedding timeframe in the query itself
+                   (e.g. from:now()-24h) for guaranteed results.
         max_wait_seconds: How long to poll before returning a TIMEOUT state (default 30).
 
     Returns a dict with "state" key: SUCCEEDED, FAILED, TIMEOUT, or ERROR.
