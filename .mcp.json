@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "mcp-dynatrace-logs": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--directory",
+        "/home/marcoan/git/marco-ostaska/mcp-dynatrace-logs",
+        "mcp-dynatrace-logs"
+      ],
+      "env": {
+        "DYNATRACE_URL": "https://your-environment.apps.dynatrace.com",
+        "DYNATRACE_API_TOKEN": "your-api-token-here"
+      }
+    }
+  }
+}

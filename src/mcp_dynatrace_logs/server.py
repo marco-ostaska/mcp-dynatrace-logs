@@ -40,13 +40,22 @@ async def fetch_logs(
     Execute a DQL query against Dynatrace logs and return results.
 
     Args:
-        query: Full DQL string, e.g. "fetch logs | filter contains(content, \"retry-stuck\") | limit 100"
-               To search across a wider time range, embed the timeframe directly in the query using
-               DQL syntax: "fetch logs, from:now()-24h | filter contains(content, \"retry-stuck\")"
-               This is the most reliable way to control the search window.
-        timeframe: Optional time offset like "3d" or "1h". Converted to an ISO 8601 timestamp and
-                   sent as defaultTimeframeStart. Prefer embedding timeframe in the query itself
-                   (e.g. from:now()-24h) for guaranteed results.
+        query: Full DQL string. Examples:
+               - Simple: "fetch logs | filter contains(content, \"error\") | limit 100"
+               - With filter: "fetch logs | filter contains(content, \"error\") AND severity == \"ERROR\" | sort by timestamp desc"
+
+               DQL SYNTAX RULES:
+               - Always start with: fetch logs | (pipe after logs, NOT comma)
+               - Use contains(field, "value") for substring matching, NOT =~
+               - Use matches(field, "pattern") for regex patterns
+               - Combine filters with AND/OR: | filter field1 == "value" AND field2 == "value"
+               - Sort: | sort by timestamp desc
+               - Limit: | limit 100
+               - Common fields: content, severity, status, timestamp
+
+        timeframe: Optional time offset like "3d", "1h", "30m". When provided, adds defaultTimeframeStart.
+                   WARNING: combining timeframe with "sort by" in the query causes PARSE_ERROR.
+                   If you need sorting, do NOT pass timeframe here — omit it or embed in query if needed.
         max_wait_seconds: How long to poll before returning a TIMEOUT state (default 30).
 
     Returns a dict with "state" key: SUCCEEDED, FAILED, TIMEOUT, or ERROR.
@@ -69,8 +78,6 @@ async def poll_query(request_token: str) -> dict:
 
 
 def main():
-    # Fail fast at startup if credentials are missing
-    _get_client()
     mcp.run()
 
 
