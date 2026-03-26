@@ -1,7 +1,7 @@
 import pytest
 import httpx
 from unittest.mock import AsyncMock, patch
-from mcp_dynatrace_logs.tools import fetch_logs, poll_query
+from mcp_dynatrace_logs.tools import fetch_logs, poll_query, _enrich_query
 
 
 @pytest.fixture
@@ -27,7 +27,11 @@ async def test_fetch_logs_with_timeframe(mock_client):
     mock_client.execute.return_value = "token=="
     mock_client.poll.return_value = {"state": "SUCCEEDED", "records": [], "progress": 100}
     await fetch_logs(mock_client, query="fetch logs", timeframe="3d")
-    mock_client.execute.assert_called_once_with("fetch logs", timeframe="3d")
+    call_args = mock_client.execute.call_args
+    called_query = call_args[0][0]
+    assert "fetch logs" in called_query
+    assert "fieldsAdd" in called_query
+    assert call_args[1]["timeframe"] == "3d"
 
 
 async def test_fetch_logs_timeout(mock_client):
@@ -157,3 +161,55 @@ async def test_fetch_logs_poll_succeeds_after_retry(mock_client):
         result = await fetch_logs(mock_client, query="fetch logs", max_wait_seconds=10)
     assert result["state"] == "SUCCEEDED"
     assert result["records"] == [{"content": "ok"}]
+
+
+def test_enrich_query_injects_block_when_no_fieldsadd():
+    query = 'fetch logs | filter contains(content, "error") | sort timestamp desc | limit 10'
+    enriched = _enrich_query(query)
+    assert "fieldsAdd" in enriched
+    assert "Log message" in enriched
+    # sort and limit must remain at the end
+    assert enriched.index("sort timestamp desc") > enriched.index("Log message")
+    assert enriched.index("limit 10") > enriched.index("Log message")
+
+
+def test_enrich_query_passthrough_when_fieldsadd_present():
+    query = "fetch logs | fieldsAdd myField = content | sort timestamp desc"
+    enriched = _enrich_query(query)
+    assert enriched == query
+
+
+def test_enrich_query_no_sort_no_limit():
+    query = 'fetch logs | filter contains(content, "test")'
+    enriched = _enrich_query(query)
+    assert "fieldsAdd" in enriched
+    assert "Log message" in enriched
+
+
+def test_enrich_query_with_only_limit():
+    query = 'fetch logs | filter contains(content, "test") | limit 5'
+    enriched = _enrich_query(query)
+    assert "fieldsAdd" in enriched
+    # limit must be after the enrichment block
+    assert enriched.index("limit 5") > enriched.index("Log message")
+
+
+async def test_fetch_logs_enriches_query(mock_client):
+    mock_client.execute.return_value = "token=="
+    mock_client.poll.return_value = {
+        "state": "SUCCEEDED",
+        "records": [{"content": "line", "Log message": "hello"}],
+    }
+    await fetch_logs(mock_client, query='fetch logs | filter contains(content, "test")')
+    called_query = mock_client.execute.call_args[0][0]
+    assert "fieldsAdd" in called_query
+    assert "Log message" in called_query
+
+
+async def test_fetch_logs_does_not_enrich_if_fieldsadd_present(mock_client):
+    mock_client.execute.return_value = "token=="
+    mock_client.poll.return_value = {"state": "SUCCEEDED", "records": []}
+    original = "fetch logs | fieldsAdd x = content | sort timestamp desc"
+    await fetch_logs(mock_client, query=original)
+    called_query = mock_client.execute.call_args[0][0]
+    assert called_query == original

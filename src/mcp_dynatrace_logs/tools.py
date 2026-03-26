@@ -1,6 +1,33 @@
 import asyncio
+import re
 import httpx
 from mcp_dynatrace_logs.client import DynatraceClient
+
+_LOG_MESSAGE_ENRICHMENT = (
+    '| fieldsAdd __attributes_array = array(msg,message,event,description,details)\n'
+    '| fieldsAdd __log_message_attr = arrayFirst(iCollectArray(if(__attributes_array[]!="", __attributes_array[])))\n'
+    '| parse content, "JSON:\'__parsed_json\'", parsingPrerequisite: isNull(__log_message_attr) and startsWith(content, "{")\n'
+    '| fieldsAdd __json_fields_array = array(__parsed_json[`message`],__parsed_json[`@message`],__parsed_json[`msg`],__parsed_json[`@mt`],__parsed_json[`@m`],__parsed_json[`body`],__parsed_json[`eventName`],__parsed_json[`textPayload`][`message`],__parsed_json[`textPayload`],__parsed_json[`protoPayload`][`@type`],__parsed_json[`protoPayload`][`message`],__parsed_json[`jsonPayload`][`message`],__parsed_json[`messageObject`][`message`],__parsed_json[`properties`][`message`],__parsed_json[`properties`][`statusMessage`],__parsed_json[`properties`][`status`][`additionalDetails`],__parsed_json[`properties`][`log`],__parsed_json[`properties`][`Log`],__parsed_json[`properties`][`Result`],__parsed_json[`content`][`detail`][`event`],__parsed_json[`Body`][`Value`])\n'
+    '| fieldsAdd `Log message` = toString(coalesce(__log_message_attr,arrayFirst(iCollectArray(if(__json_fields_array[]!="", __json_fields_array[])))))\n'
+    '| parse coalesce(`Log message`, content), "(DATA (\' \'|SPACE))? (\'msg\'|\'message\'|\'Message\') \'=\' DQS:\'__log_message_kv\'", parsingPrerequisite: matchesValue(coalesce(`Log message`, content), {"*msg=*","*message=*","*Message=*"}, caseSensitive:true)\n'
+    '| fieldsAdd `Log message` = coalesce(__log_message_kv, `Log message`)\n'
+    '| fieldsRemove __parsed_json, __log_message_attr, __log_message_kv, __attributes_array, __json_fields_array'
+)
+
+
+def _enrich_query(query: str) -> str:
+    """Inject the Dynatrace Log message enrichment block if not already present.
+
+    Inserted before any trailing | sort or | limit clause.
+    Queries already containing 'fieldsAdd' are returned unchanged.
+    """
+    if "fieldsAdd" in query:
+        return query
+    tail_match = re.search(r"(\|\s*(?:sort|limit)\b.*)", query, re.IGNORECASE | re.DOTALL)
+    if tail_match:
+        insert_at = tail_match.start()
+        return query[:insert_at].rstrip() + "\n" + _LOG_MESSAGE_ENRICHMENT + "\n" + query[insert_at:]
+    return query.rstrip() + "\n" + _LOG_MESSAGE_ENRICHMENT
 
 _MAX_POLL_RETRIES = 3
 _POLL_RETRY_BACKOFF = 2  # seconds
@@ -39,6 +66,7 @@ async def fetch_logs(
     timeframe: str | None = None,
     max_wait_seconds: int = 120,
 ) -> dict:
+    query = _enrich_query(query)
     try:
         request_token = await client.execute(query, timeframe=timeframe)
     except httpx.HTTPStatusError as e:
