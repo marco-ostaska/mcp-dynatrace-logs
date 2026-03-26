@@ -34,6 +34,10 @@ async def test_execute_with_timeframe(client):
     parsed = json.loads(body)
     # Must be an ISO 8601 timestamp, not a DQL expression like "now()-3d"
     assert re.match(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", parsed["defaultTimeframeStart"])
+    # defaultTimeframeEnd must be sent so Dynatrace doesn't cap the window at its 2h default
+    assert re.match(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", parsed["defaultTimeframeEnd"])
+    # end must be after start
+    assert parsed["defaultTimeframeEnd"] > parsed["defaultTimeframeStart"]
 
 
 def test_timeframe_to_iso_format():

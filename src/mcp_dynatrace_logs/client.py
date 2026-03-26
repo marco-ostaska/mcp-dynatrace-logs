@@ -61,6 +61,7 @@ class DynatraceClient:
         body: dict = {"query": query}
         if timeframe:
             body["defaultTimeframeStart"] = _timeframe_to_iso(timeframe)
+            body["defaultTimeframeEnd"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
         try:
             async with httpx.AsyncClient() as http:
