@@ -71,3 +71,33 @@ async def test_poll_sends_correct_token(client):
     )
     await client.poll("mytoken==")
     assert "mytoken==" in unquote(str(route.calls[0].request.url))
+
+
+@respx.mock
+async def test_execute_401_raises_with_message(client):
+    respx.post(f"{BASE_URL}/platform/storage/query/v1/query:execute").mock(
+        return_value=httpx.Response(401, json={"error": {"message": "unauthorized"}})
+    )
+    with pytest.raises(httpx.HTTPStatusError) as exc_info:
+        await client.execute("fetch logs")
+    assert "token" in str(exc_info.value).lower() or exc_info.value.response.status_code == 401
+
+
+@respx.mock
+async def test_execute_403_raises_with_message(client):
+    respx.post(f"{BASE_URL}/platform/storage/query/v1/query:execute").mock(
+        return_value=httpx.Response(403, json={"error": {"message": "forbidden"}})
+    )
+    with pytest.raises(httpx.HTTPStatusError) as exc_info:
+        await client.execute("fetch logs")
+    assert exc_info.value.response.status_code == 403
+
+
+@respx.mock
+async def test_execute_connection_error_includes_url(client):
+    respx.post(f"{BASE_URL}/platform/storage/query/v1/query:execute").mock(
+        side_effect=httpx.ConnectError("connection refused")
+    )
+    with pytest.raises(httpx.ConnectError) as exc_info:
+        await client.execute("fetch logs")
+    assert BASE_URL in str(exc_info.value)
