@@ -34,7 +34,7 @@ def _get_client() -> DynatraceClient:
 async def fetch_logs(
     query: str,
     timeframe: str | None = None,
-    max_wait_seconds: int = 30,
+    max_wait_seconds: int = 120,
 ) -> dict:
     """
     Execute a DQL query against Dynatrace logs and return results.
@@ -43,16 +43,16 @@ async def fetch_logs(
         query: Full DQL string. DQL SYNTAX RULES:
                - Always start with: fetch logs
                - Pipe each operation: fetch logs | filter ... | sort ... | limit ...
-               - Use contains(field, "value") for substring matching
+               - ALWAYS use caseSensitive: false in contains(): contains(field, "value", caseSensitive: false)
                - Use matches(field, "pattern") for regex
                - Combine filters: | filter field1 == "value" AND field2 == "value"
                - Sort (NO 'by' keyword): | sort timestamp desc
-               - Limit: | limit 100
+               - Limit: | limit 1000  (default — do NOT exceed 1000 unless user explicitly asks for more)
                - Common fields: content, severity, status, timestamp
 
                Examples:
-               - "fetch logs | filter contains(content, \"error\") | sort timestamp desc | limit 50"
-               - "fetch logs | filter severity == \"ERROR\" AND contains(content, \"order-id\") | sort timestamp desc"
+               - "fetch logs | filter contains(content, \"error\", caseSensitive: false) | sort timestamp desc | limit 1000"
+               - "fetch logs | filter severity == \"ERROR\" AND contains(content, \"order-id\", caseSensitive: false) | sort timestamp desc | limit 1000"
 
                NOTE: The server automatically enriches your query to extract a readable
                'Log message' field from JSON and key=value log formats, unless your query
