@@ -40,26 +40,29 @@ async def fetch_logs(
     Execute a DQL query against Dynatrace logs and return results.
 
     Args:
-        query: Full DQL string. Examples:
-               - Simple: "fetch logs | filter contains(content, \"error\") | limit 100"
-               - With filter: "fetch logs | filter contains(content, \"error\") AND severity == \"ERROR\" | sort by timestamp desc"
-
-               DQL SYNTAX RULES:
-               - Always start with: fetch logs | (pipe after logs, NOT comma)
-               - Use contains(field, "value") for substring matching, NOT =~
-               - Use matches(field, "pattern") for regex patterns
-               - Combine filters with AND/OR: | filter field1 == "value" AND field2 == "value"
-               - Sort: | sort by timestamp desc
+        query: Full DQL string. DQL SYNTAX RULES:
+               - Always start with: fetch logs
+               - Pipe each operation: fetch logs | filter ... | sort ... | limit ...
+               - Use contains(field, "value") for substring matching
+               - Use matches(field, "pattern") for regex
+               - Combine filters: | filter field1 == "value" AND field2 == "value"
+               - Sort (NO 'by' keyword): | sort timestamp desc
                - Limit: | limit 100
                - Common fields: content, severity, status, timestamp
 
-        timeframe: Optional time offset like "3d", "1h", "30m". When provided, adds defaultTimeframeStart.
-                   WARNING: combining timeframe with "sort by" in the query causes PARSE_ERROR.
-                   If you need sorting, do NOT pass timeframe here — omit it or embed in query if needed.
-        max_wait_seconds: How long to poll before returning a TIMEOUT state (default 30).
+               Examples:
+               - "fetch logs | filter contains(content, \"error\") | sort timestamp desc | limit 50"
+               - "fetch logs | filter severity == \"ERROR\" AND contains(content, \"order-id\") | sort timestamp desc"
 
-    Returns a dict with "state" key: SUCCEEDED, FAILED, TIMEOUT, or ERROR.
-    On TIMEOUT, use poll_query with the returned request_token to retrieve results later.
+               NOTE: The server automatically enriches your query to extract a readable
+               'Log message' field from JSON and key=value log formats, unless your query
+               already contains 'fieldsAdd'.
+
+        timeframe: Optional time offset like "3d", "1h", "30m". Adds defaultTimeframeStart.
+        max_wait_seconds: How long to poll before returning TIMEOUT (default 120).
+
+    Returns a dict with "state": SUCCEEDED, FAILED, TIMEOUT, or ERROR.
+    On TIMEOUT, call poll_query immediately with the returned request_token.
     """
     return await tools.fetch_logs(_get_client(), query=query, timeframe=timeframe, max_wait_seconds=max_wait_seconds)
 
