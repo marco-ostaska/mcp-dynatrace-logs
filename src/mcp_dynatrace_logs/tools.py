@@ -2,19 +2,42 @@ import asyncio
 import httpx
 from mcp_dynatrace_logs.client import DynatraceClient
 
+_MAX_POLL_RETRIES = 3
+_POLL_RETRY_BACKOFF = 2  # seconds
+
 
 def _extract_error_message(e: httpx.HTTPStatusError) -> str:
+    # Prefer the actionable message baked in by _raise_for_status
+    if e.args and e.args[0] and not e.args[0].startswith("Client error"):
+        return e.args[0]
     try:
         return e.response.json().get("error", {}).get("message", e.response.text)
     except Exception:
         return e.response.text
 
 
+async def _poll_with_retry(client: DynatraceClient, request_token: str) -> dict | None:
+    """Poll once, retrying up to _MAX_POLL_RETRIES times on transient network errors.
+
+    Returns the poll response dict, or None if all retries are exhausted.
+    Raises httpx.HTTPStatusError immediately (no retry) on 4xx/5xx responses.
+    """
+    for attempt in range(_MAX_POLL_RETRIES):
+        try:
+            return await client.poll(request_token)
+        except httpx.HTTPStatusError:
+            raise  # permanent error, don't retry
+        except httpx.RequestError:
+            if attempt < _MAX_POLL_RETRIES - 1:
+                await asyncio.sleep(_POLL_RETRY_BACKOFF)
+    return None  # all retries exhausted
+
+
 async def fetch_logs(
     client: DynatraceClient,
     query: str,
     timeframe: str | None = None,
-    max_wait_seconds: int = 30,
+    max_wait_seconds: int = 120,
 ) -> dict:
     try:
         request_token = await client.execute(query, timeframe=timeframe)
@@ -27,10 +50,11 @@ async def fetch_logs(
     except httpx.RequestError as e:
         return {"state": "ERROR", "error": str(e)}
 
+    data: dict | None = None
     elapsed = 0
     while elapsed < max_wait_seconds:
         try:
-            data = await client.poll(request_token)
+            data = await _poll_with_retry(client, request_token)
         except httpx.HTTPStatusError as e:
             return {
                 "state": "ERROR",
@@ -38,10 +62,11 @@ async def fetch_logs(
                 "error": _extract_error_message(e),
                 "metadata": {"request_token": request_token},
             }
-        except httpx.RequestError as e:
+
+        if data is None:
             return {
                 "state": "ERROR",
-                "error": str(e),
+                "error": "Falha de rede ao consultar Dynatrace após 3 tentativas.",
                 "metadata": {"request_token": request_token},
             }
 
@@ -75,10 +100,13 @@ async def fetch_logs(
     return {
         "state": "TIMEOUT",
         "message": (
-            f"Query did not complete within {max_wait_seconds} seconds. "
-            f"Use poll_query with the request_token to retrieve results."
+            f"A query não completou em {max_wait_seconds} segundos. "
+            f"Chame poll_query imediatamente com o request_token '{request_token}' para recuperar os resultados."
         ),
-        "metadata": {"request_token": request_token},
+        "metadata": {
+            "request_token": request_token,
+            "progress": data.get("progress") if data else None,
+        },
     }
 
 

@@ -1,6 +1,6 @@
 import pytest
 import httpx
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 from mcp_dynatrace_logs.tools import fetch_logs, poll_query
 
 
@@ -66,9 +66,9 @@ async def test_fetch_logs_network_error(mock_client):
 async def test_fetch_logs_poll_network_error(mock_client):
     mock_client.execute.return_value = "token=="
     mock_client.poll.side_effect = httpx.ConnectError("connection refused")
-    result = await fetch_logs(mock_client, query="fetch logs", max_wait_seconds=1)
+    with patch("mcp_dynatrace_logs.tools.asyncio.sleep"):
+        result = await fetch_logs(mock_client, query="fetch logs", max_wait_seconds=1)
     assert result["state"] == "ERROR"
-    assert "connection refused" in result["error"]
     assert result["metadata"]["request_token"] == "token=="
 
 
@@ -114,3 +114,46 @@ async def test_poll_query_http_error(mock_client):
     result = await poll_query(mock_client, request_token="token==")
     assert result["state"] == "ERROR"
     assert result["status_code"] == 401
+
+
+async def test_fetch_logs_default_timeout_is_120(mock_client):
+    """Default max_wait_seconds must be 120."""
+    import inspect
+    from mcp_dynatrace_logs.tools import fetch_logs
+    sig = inspect.signature(fetch_logs)
+    assert sig.parameters["max_wait_seconds"].default == 120
+
+
+async def test_fetch_logs_timeout_message_instructs_poll(mock_client):
+    mock_client.execute.return_value = "token=="
+    mock_client.poll.return_value = {"state": "RUNNING", "progress": 10}
+    result = await fetch_logs(mock_client, query="fetch logs", max_wait_seconds=0)
+    assert result["state"] == "TIMEOUT"
+    # Message must instruct Claude to call poll_query immediately
+    assert "poll_query" in result["message"]
+    assert "token==" in result["message"]
+
+
+async def test_fetch_logs_poll_retries_on_network_error(mock_client):
+    """On transient network error during polling, retries up to 3 times before ERROR."""
+    mock_client.execute.return_value = "token=="
+    mock_client.poll.side_effect = httpx.ConnectError("transient")
+    with patch("mcp_dynatrace_logs.tools.asyncio.sleep"):
+        result = await fetch_logs(mock_client, query="fetch logs", max_wait_seconds=10)
+    # Should have retried 3 times total
+    assert mock_client.poll.call_count == 3
+    assert result["state"] == "ERROR"
+    assert result["metadata"]["request_token"] == "token=="
+
+
+async def test_fetch_logs_poll_succeeds_after_retry(mock_client):
+    """If poll fails once but succeeds on retry, returns SUCCEEDED."""
+    mock_client.execute.return_value = "token=="
+    mock_client.poll.side_effect = [
+        httpx.ConnectError("transient"),
+        {"state": "SUCCEEDED", "records": [{"content": "ok"}]},
+    ]
+    with patch("mcp_dynatrace_logs.tools.asyncio.sleep"):
+        result = await fetch_logs(mock_client, query="fetch logs", max_wait_seconds=10)
+    assert result["state"] == "SUCCEEDED"
+    assert result["records"] == [{"content": "ok"}]
