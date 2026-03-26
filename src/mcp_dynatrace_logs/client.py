@@ -24,23 +24,24 @@ def _raise_for_status(response: httpx.Response) -> None:
     """Raise HTTPStatusError with an actionable message based on status code."""
     if response.status_code == 401:
         raise httpx.HTTPStatusError(
-            "API token inválido ou expirado. Verifique DYNATRACE_API_TOKEN.",
+            "Invalid or expired API token. Check DYNATRACE_API_TOKEN.",
             request=response.request,
             response=response,
         )
     if response.status_code == 403:
         raise httpx.HTTPStatusError(
-            "Token sem permissão de leitura de logs. Verifique os escopos do token no Dynatrace.",
+            "Token lacks log read permission. Check the token scopes in Dynatrace.",
             request=response.request,
             response=response,
         )
     if response.status_code == 400:
         try:
-            api_msg = response.json().get("error", {}).get("message", response.text)
+            error = response.json().get("error", {})
+            api_msg = error.get("message", response.text) if isinstance(error, dict) else response.text
         except Exception:
             api_msg = response.text
         raise httpx.HTTPStatusError(
-            f"{api_msg} — verifique a sintaxe DQL.",
+            f"{api_msg} — check DQL syntax.",
             request=response.request,
             response=response,
         )
@@ -72,13 +73,13 @@ class DynatraceClient:
                 return response.json()["requestToken"]
         except httpx.ConnectError as e:
             raise httpx.ConnectError(
-                f"Não foi possível conectar ao Dynatrace em {self._base_url}. "
-                f"Verifique DYNATRACE_URL e conectividade de rede. Detalhe: {e}"
+                f"Could not connect to Dynatrace at {self._base_url}. "
+                f"Check DYNATRACE_URL and network connectivity. Detail: {e}"
             ) from e
         except httpx.TimeoutException as e:
             raise httpx.TimeoutException(
-                f"Timeout ao conectar ao Dynatrace em {self._base_url}. "
-                f"Verifique DYNATRACE_URL e conectividade de rede."
+                f"Timeout connecting to Dynatrace at {self._base_url}. "
+                f"Check DYNATRACE_URL and network connectivity."
             ) from e
 
     async def poll(self, request_token: str) -> dict:
@@ -94,11 +95,11 @@ class DynatraceClient:
                 return response.json()
         except httpx.ConnectError as e:
             raise httpx.ConnectError(
-                f"Não foi possível conectar ao Dynatrace em {self._base_url}. "
-                f"Verifique DYNATRACE_URL e conectividade de rede. Detalhe: {e}"
+                f"Could not connect to Dynatrace at {self._base_url}. "
+                f"Check DYNATRACE_URL and network connectivity. Detail: {e}"
             ) from e
         except httpx.TimeoutException as e:
             raise httpx.TimeoutException(
-                f"Timeout ao conectar ao Dynatrace em {self._base_url}. "
-                f"Verifique DYNATRACE_URL e conectividade de rede."
+                f"Timeout connecting to Dynatrace at {self._base_url}. "
+                f"Check DYNATRACE_URL and network connectivity."
             ) from e

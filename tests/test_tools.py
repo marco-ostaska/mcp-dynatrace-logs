@@ -98,9 +98,9 @@ async def test_poll_query_succeeded(mock_client):
 
 async def test_poll_query_network_error(mock_client):
     mock_client.poll.side_effect = httpx.ConnectError("connection refused")
-    result = await poll_query(mock_client, request_token="token==")
+    with patch("mcp_dynatrace_logs.tools.asyncio.sleep"):
+        result = await poll_query(mock_client, request_token="token==")
     assert result["state"] == "ERROR"
-    assert "connection refused" in result["error"]
     assert result["metadata"]["request_token"] == "token=="
 
 
@@ -173,10 +173,17 @@ def test_enrich_query_injects_block_when_no_fieldsadd():
     assert enriched.index("limit 10") > enriched.index("Log message")
 
 
-def test_enrich_query_passthrough_when_fieldsadd_present():
-    query = "fetch logs | fieldsAdd myField = content | sort timestamp desc"
+def test_enrich_query_passthrough_when_log_message_present():
+    query = "fetch logs | fieldsAdd `Log message` = content | sort timestamp desc"
     enriched = _enrich_query(query)
     assert enriched == query
+
+
+def test_enrich_query_enriches_when_unrelated_fieldsadd_present():
+    """A query with fieldsAdd unrelated to Log message should still be enriched."""
+    query = "fetch logs | fieldsAdd severity = loglevel | sort timestamp desc"
+    enriched = _enrich_query(query)
+    assert "`Log message`" in enriched
 
 
 def test_enrich_query_no_sort_no_limit():
@@ -206,10 +213,10 @@ async def test_fetch_logs_enriches_query(mock_client):
     assert "Log message" in called_query
 
 
-async def test_fetch_logs_does_not_enrich_if_fieldsadd_present(mock_client):
+async def test_fetch_logs_does_not_enrich_if_log_message_present(mock_client):
     mock_client.execute.return_value = "token=="
     mock_client.poll.return_value = {"state": "SUCCEEDED", "records": []}
-    original = "fetch logs | fieldsAdd x = content | sort timestamp desc"
+    original = "fetch logs | fieldsAdd `Log message` = content | sort timestamp desc"
     await fetch_logs(mock_client, query=original)
     called_query = mock_client.execute.call_args[0][0]
     assert called_query == original

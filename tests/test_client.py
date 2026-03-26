@@ -80,7 +80,8 @@ async def test_execute_401_raises_with_message(client):
     )
     with pytest.raises(httpx.HTTPStatusError) as exc_info:
         await client.execute("fetch logs")
-    assert "token" in str(exc_info.value).lower() or exc_info.value.response.status_code == 401
+    assert "token" in str(exc_info.value).lower()
+    assert exc_info.value.response.status_code == 401
 
 
 @respx.mock
@@ -101,3 +102,14 @@ async def test_execute_connection_error_includes_url(client):
     with pytest.raises(httpx.ConnectError) as exc_info:
         await client.execute("fetch logs")
     assert BASE_URL in str(exc_info.value)
+
+
+@respx.mock
+async def test_execute_400_includes_api_message(client):
+    respx.post(f"{BASE_URL}/platform/storage/query/v1/query:execute").mock(
+        return_value=httpx.Response(400, json={"error": {"message": "DQL syntax error at line 1"}})
+    )
+    with pytest.raises(httpx.HTTPStatusError) as exc_info:
+        await client.execute("bad dql query")
+    assert "DQL syntax error at line 1" in str(exc_info.value)
+    assert "DQL syntax" in str(exc_info.value)

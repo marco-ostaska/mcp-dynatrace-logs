@@ -21,7 +21,7 @@ def _enrich_query(query: str) -> str:
     Inserted before any trailing | sort or | limit clause.
     Queries already containing 'fieldsAdd' are returned unchanged.
     """
-    if "fieldsAdd" in query:
+    if "`Log message`" in query:
         return query
     tail_match = re.search(r"(\|\s*(?:sort|limit)\b.*)", query, re.IGNORECASE | re.DOTALL)
     if tail_match:
@@ -94,7 +94,7 @@ async def fetch_logs(
         if data is None:
             return {
                 "state": "ERROR",
-                "error": "Falha de rede ao consultar Dynatrace após 3 tentativas.",
+                "error": "Network failure querying Dynatrace after 3 attempts.",
                 "metadata": {"request_token": request_token},
             }
 
@@ -128,8 +128,8 @@ async def fetch_logs(
     return {
         "state": "TIMEOUT",
         "message": (
-            f"A query não completou em {max_wait_seconds} segundos. "
-            f"Chame poll_query imediatamente com o request_token '{request_token}' para recuperar os resultados."
+            f"Query did not complete within {max_wait_seconds} seconds. "
+            f"Call poll_query immediately with request_token '{request_token}' to retrieve results."
         ),
         "metadata": {
             "request_token": request_token,
@@ -140,7 +140,7 @@ async def fetch_logs(
 
 async def poll_query(client: DynatraceClient, request_token: str) -> dict:
     try:
-        data = await client.poll(request_token)
+        data = await _poll_with_retry(client, request_token)
     except httpx.HTTPStatusError as e:
         return {
             "state": "ERROR",
@@ -148,10 +148,11 @@ async def poll_query(client: DynatraceClient, request_token: str) -> dict:
             "error": _extract_error_message(e),
             "metadata": {"request_token": request_token},
         }
-    except httpx.RequestError as e:
+
+    if data is None:
         return {
             "state": "ERROR",
-            "error": str(e),
+            "error": "Network failure querying Dynatrace after 3 attempts.",
             "metadata": {"request_token": request_token},
         }
 
