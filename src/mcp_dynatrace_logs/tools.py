@@ -15,13 +15,22 @@ _LOG_MESSAGE_ENRICHMENT = (
 )
 
 
+_AGGREGATION_COMMANDS = re.compile(
+    r"\|\s*(?:summarize|makeTimeseries|makeSmartTimeseries|fieldsRemove|fieldsKeep|lookup|join)\b",
+    re.IGNORECASE,
+)
+
+
 def _enrich_query(query: str) -> str:
     """Inject the Dynatrace Log message enrichment block if not already present.
 
     Inserted before any trailing | sort or | limit clause.
-    Queries already containing 'fieldsAdd' are returned unchanged.
+    Skipped if the query already has `Log message` or uses aggregation commands
+    (summarize, makeTimeseries, etc.) that are incompatible with per-record enrichment.
     """
     if "`Log message`" in query:
+        return query
+    if _AGGREGATION_COMMANDS.search(query):
         return query
     tail_match = re.search(r"(\|\s*(?:sort|limit)\b.*)", query, re.IGNORECASE | re.DOTALL)
     if tail_match:

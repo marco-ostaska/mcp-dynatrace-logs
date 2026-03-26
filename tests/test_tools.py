@@ -193,6 +193,18 @@ def test_enrich_query_no_sort_no_limit():
     assert "Log message" in enriched
 
 
+def test_enrich_query_skips_when_summarize_present():
+    query = 'fetch logs | filter contains(content, "error") | summarize total = count()'
+    enriched = _enrich_query(query)
+    assert enriched == query
+
+
+def test_enrich_query_skips_when_makeTimeseries_present():
+    query = 'fetch logs | makeTimeseries count(), by: {loglevel}'
+    enriched = _enrich_query(query)
+    assert enriched == query
+
+
 def test_enrich_query_with_only_limit():
     query = 'fetch logs | filter contains(content, "test") | limit 5'
     enriched = _enrich_query(query)
