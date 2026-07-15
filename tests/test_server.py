@@ -1,6 +1,7 @@
 import os
 import pytest
 from unittest.mock import patch
+from mcp_dynatrace_logs.client import InvalidDynatraceUrlError
 
 
 def test_missing_dynatrace_url_raises():
@@ -26,3 +27,14 @@ def test_both_env_vars_present_returns_client():
         from mcp_dynatrace_logs.server import _build_client
         client = _build_client()
         assert client is not None
+
+
+def test_build_client_rejects_unsafe_url():
+    env = {
+        "DYNATRACE_URL": "http://attacker.com",
+        "DYNATRACE_API_TOKEN": "mytoken",
+    }
+    with patch.dict(os.environ, env, clear=True):
+        from mcp_dynatrace_logs.server import _build_client
+        with pytest.raises(InvalidDynatraceUrlError):
+            _build_client()

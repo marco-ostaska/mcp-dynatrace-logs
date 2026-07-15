@@ -12,7 +12,7 @@ _client: DynatraceClient | None = None
 
 
 def _build_client() -> DynatraceClient:
-    """Build a DynatraceClient from environment variables. Raises EnvironmentError if vars are missing."""
+    """Build a DynatraceClient from environment variables. Raises EnvironmentError if vars are missing or unsafe."""
     url = os.environ.get("DYNATRACE_URL")
     token = os.environ.get("DYNATRACE_API_TOKEN")
     if not url:
@@ -20,7 +20,6 @@ def _build_client() -> DynatraceClient:
     if not token:
         raise EnvironmentError("DYNATRACE_API_TOKEN environment variable is not set.")
     return DynatraceClient(base_url=url, token=token)
-
 
 def _get_client() -> DynatraceClient:
     """Return the module-level client, initializing it on first call."""
@@ -59,7 +58,7 @@ async def fetch_logs(
                already contains 'fieldsAdd'.
 
         timeframe: Optional time offset like "3d", "1h", "30m". Adds defaultTimeframeStart.
-        max_wait_seconds: How long to poll before returning TIMEOUT (default 120).
+        max_wait_seconds: How long to poll before returning TIMEOUT (default 120, max 600).
 
     Returns a dict with "state": SUCCEEDED, FAILED, TIMEOUT, or ERROR.
     On TIMEOUT, call poll_query immediately with the returned request_token.
@@ -80,8 +79,24 @@ async def poll_query(request_token: str) -> dict:
     return await tools.poll_query(_get_client(), request_token=request_token)
 
 
+async def _close_client() -> None:
+    """Close the module-level HTTP client when the MCP server shuts down."""
+    global _client
+    if _client is not None:
+        await _client.close()
+        _client = None
+
+
 def main():
-    mcp.run()
+    try:
+        mcp.run()
+    finally:
+        # Best-effort cleanup when running directly (e.g. mcp-dynatrace-logs).
+        import asyncio
+        try:
+            asyncio.run(_close_client())
+        except RuntimeError:
+            pass
 
 
 if __name__ == "__main__":

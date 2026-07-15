@@ -37,10 +37,17 @@ async def test_fetch_logs_with_timeframe(mock_client):
 async def test_fetch_logs_timeout(mock_client):
     mock_client.execute.return_value = "token=="
     mock_client.poll.return_value = {"state": "RUNNING", "progress": 10}
-    result = await fetch_logs(mock_client, query="fetch logs", max_wait_seconds=0)
+    result = await fetch_logs(mock_client, query="fetch logs", max_wait_seconds=1)
     assert result["state"] == "TIMEOUT"
     assert result["metadata"]["request_token"] == "token=="
     assert "request_token" in result["message"]
+
+
+async def test_fetch_logs_max_wait_validation(mock_client):
+    with pytest.raises(ValueError, match="max_wait_seconds"):
+        await fetch_logs(mock_client, query="fetch logs", max_wait_seconds=0)
+    with pytest.raises(ValueError, match="max_wait_seconds"):
+        await fetch_logs(mock_client, query="fetch logs", max_wait_seconds=601)
 
 
 async def test_fetch_logs_poll_failed(mock_client):
@@ -73,6 +80,16 @@ async def test_fetch_logs_poll_network_error(mock_client):
     with patch("mcp_dynatrace_logs.tools.asyncio.sleep"):
         result = await fetch_logs(mock_client, query="fetch logs", max_wait_seconds=1)
     assert result["state"] == "ERROR"
+    assert "connection refused" in result["error"]
+    assert result["metadata"]["request_token"] == "token=="
+
+
+async def test_poll_query_network_error_preserves_message(mock_client):
+    mock_client.poll.side_effect = httpx.ConnectError("connection refused")
+    with patch("mcp_dynatrace_logs.tools.asyncio.sleep"):
+        result = await poll_query(mock_client, request_token="token==")
+    assert result["state"] == "ERROR"
+    assert "connection refused" in result["error"]
     assert result["metadata"]["request_token"] == "token=="
 
 
@@ -120,18 +137,19 @@ async def test_poll_query_http_error(mock_client):
     assert result["status_code"] == 401
 
 
-async def test_fetch_logs_default_timeout_is_120(mock_client):
+async def test_fetch_logs_default_timeout_is_120():
     """Default max_wait_seconds must be 120."""
     import inspect
     from mcp_dynatrace_logs.tools import fetch_logs
     sig = inspect.signature(fetch_logs)
     assert sig.parameters["max_wait_seconds"].default == 120
+    assert sig.parameters["max_wait_seconds"].annotation is int
 
 
 async def test_fetch_logs_timeout_message_instructs_poll(mock_client):
     mock_client.execute.return_value = "token=="
     mock_client.poll.return_value = {"state": "RUNNING", "progress": 10}
-    result = await fetch_logs(mock_client, query="fetch logs", max_wait_seconds=0)
+    result = await fetch_logs(mock_client, query="fetch logs", max_wait_seconds=1)
     assert result["state"] == "TIMEOUT"
     # Message must instruct Claude to call poll_query immediately
     assert "poll_query" in result["message"]

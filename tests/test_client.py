@@ -4,15 +4,96 @@ from urllib.parse import unquote
 import pytest
 import httpx
 import respx
-from mcp_dynatrace_logs.client import DynatraceClient, _timeframe_to_iso
+import asyncio
+from mcp_dynatrace_logs.client import (
+    DynatraceClient,
+    DynatraceSSRFError,
+    InvalidDynatraceUrlError,
+    _timeframe_to_iso,
+    _validate_dynatrace_url,
+    _sanitize_request_for_error,
+    _sanitize_response_for_error,
+    _resolve_and_validate_host,
+    _ValidatedAsyncHTTPTransport,
+)
 
 BASE_URL = "https://test.dynatrace.com"
 TOKEN = "test-token"
 
 
 @pytest.fixture
-def client():
-    return DynatraceClient(base_url=BASE_URL, token=TOKEN)
+async def client():
+    # Use a plain httpx client so respx can mock without real DNS lookups.
+    http = httpx.AsyncClient()
+    c = DynatraceClient(base_url=BASE_URL, token=TOKEN, http_client=http)
+    try:
+        yield c
+    finally:
+        await http.aclose()
+
+
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://test.dynatrace.com",
+        "https://localhost",
+        "https://127.0.0.1",
+        "https://10.0.0.1",
+        "https://169.254.169.254",
+        "https://metadata.google.internal",
+        "https://attacker.com",
+    ],
+)
+def test_validate_dynatrace_url_rejects_unsafe(url):
+    with pytest.raises(InvalidDynatraceUrlError):
+        _validate_dynatrace_url(url)
+
+
+def test_exception_does_not_leak_authorization_header():
+    request = httpx.Request("GET", "https://test.dynatrace.com", headers={"Authorization": "Bearer secret"})
+    sanitized = _sanitize_request_for_error(request)
+    assert "authorization" not in sanitized.headers
+    assert "Bearer secret" not in str(sanitized.headers)
+
+
+def test_sanitized_response_strips_authorization_from_response_request():
+    request = httpx.Request("GET", "https://test.dynatrace.com", headers={"Authorization": "Bearer secret"})
+    response = httpx.Response(401, text="unauthorized", request=request)
+    sanitized = _sanitize_response_for_error(response)
+    assert "authorization" not in sanitized.request.headers
+    assert "Bearer secret" not in str(sanitized.request.headers)
+
+
+@pytest.mark.parametrize(
+    "hostname",
+    [
+        "localhost",
+        "127.0.0.1",
+        "10.0.0.1",
+        "169.254.169.254",
+        "metadata.google.internal",
+    ],
+)
+async def test_resolve_and_validate_host_rejects_private(hostname):
+    with pytest.raises(DynatraceSSRFError):
+        await _resolve_and_validate_host(hostname)
+
+
+async def test_resolve_and_validate_host_accepts_public():
+    # github.com is a stable public hostname for this smoke test.
+    await _resolve_and_validate_host("github.com")
+
+
+async def test_validated_transport_blocks_private_host():
+    """The custom transport must reject a request whose host resolves to a private IP."""
+    transport = _ValidatedAsyncHTTPTransport()
+    request = httpx.Request("GET", "https://localhost/")
+    with pytest.raises((DynatraceSSRFError, httpx.ConnectError)):
+        # Localhost is rejected either by IP validation or by connect failure.
+        await transport.handle_async_request(request)
+    await transport.aclose()
 
 
 @respx.mock

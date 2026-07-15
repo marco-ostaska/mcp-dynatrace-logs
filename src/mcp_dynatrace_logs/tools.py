@@ -1,5 +1,6 @@
 import asyncio
 import re
+import time
 import httpx
 from mcp_dynatrace_logs.client import DynatraceClient
 
@@ -60,6 +61,7 @@ def _enrich_query(query: str) -> str:
 
 _MAX_POLL_RETRIES = 3
 _POLL_RETRY_BACKOFF = 2  # seconds
+_MAX_WAIT_SECONDS = 600
 
 
 def _extract_error_message(e: httpx.HTTPStatusError) -> str:
@@ -72,21 +74,27 @@ def _extract_error_message(e: httpx.HTTPStatusError) -> str:
         return e.response.text
 
 
-async def _poll_with_retry(client: DynatraceClient, request_token: str) -> dict | None:
+async def _poll_with_retry(client: DynatraceClient, request_token: str) -> dict:
     """Poll once, retrying up to _MAX_POLL_RETRIES times on transient network errors.
 
-    Returns the poll response dict, or None if all retries are exhausted.
+    Returns the poll response dict.
     Raises httpx.HTTPStatusError immediately (no retry) on 4xx/5xx responses.
+    Raises the last httpx.RequestError if all retries are exhausted.
     """
+    last_error: httpx.RequestError | None = None
     for attempt in range(_MAX_POLL_RETRIES):
         try:
             return await client.poll(request_token)
         except httpx.HTTPStatusError:
             raise  # permanent error, don't retry
-        except httpx.RequestError:
+        except httpx.RequestError as e:
+            last_error = e
             if attempt < _MAX_POLL_RETRIES - 1:
                 await asyncio.sleep(_POLL_RETRY_BACKOFF)
-    return None  # all retries exhausted
+    if last_error is not None:
+        raise last_error
+    # Defensive fallback; should be unreachable because last_error is set on the first iteration.
+    raise httpx.RequestError("Network failure querying Dynatrace after retries.")
 
 
 async def fetch_logs(
@@ -95,6 +103,11 @@ async def fetch_logs(
     timeframe: str | None = None,
     max_wait_seconds: int = 120,
 ) -> dict:
+    if not (1 <= max_wait_seconds <= _MAX_WAIT_SECONDS):
+        raise ValueError(
+            f"max_wait_seconds must be between 1 and {_MAX_WAIT_SECONDS}, got {max_wait_seconds}."
+        )
+
     query = _enrich_query(query)
     try:
         request_token = await client.execute(query, timeframe=timeframe)
@@ -108,8 +121,9 @@ async def fetch_logs(
         return {"state": "ERROR", "error": str(e)}
 
     data: dict | None = None
-    elapsed = 0
-    while elapsed < max_wait_seconds:
+    deadline = time.monotonic() + max_wait_seconds
+    # Always poll at least once before the deadline.
+    while True:
         try:
             data = await _poll_with_retry(client, request_token)
         except httpx.HTTPStatusError as e:
@@ -119,11 +133,10 @@ async def fetch_logs(
                 "error": _extract_error_message(e),
                 "metadata": {"request_token": request_token},
             }
-
-        if data is None:
+        except httpx.RequestError as e:
             return {
                 "state": "ERROR",
-                "error": "Network failure querying Dynatrace after 3 attempts.",
+                "error": str(e),
                 "metadata": {"request_token": request_token},
             }
 
@@ -151,8 +164,10 @@ async def fetch_logs(
                 "metadata": {"request_token": request_token},
             }
 
+        if time.monotonic() >= deadline:
+            break
+
         await asyncio.sleep(1)
-        elapsed += 1
 
     return {
         "state": "TIMEOUT",
@@ -177,11 +192,10 @@ async def poll_query(client: DynatraceClient, request_token: str) -> dict:
             "error": _extract_error_message(e),
             "metadata": {"request_token": request_token},
         }
-
-    if data is None:
+    except httpx.RequestError as e:
         return {
             "state": "ERROR",
-            "error": "Network failure querying Dynatrace after 3 attempts.",
+            "error": str(e),
             "metadata": {"request_token": request_token},
         }
 
