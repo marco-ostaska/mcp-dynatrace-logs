@@ -15,10 +15,27 @@ _LOG_MESSAGE_ENRICHMENT = (
 )
 
 
+_MIN_RESULT_LIMIT = 2000
+_LIMIT_PATTERN = re.compile(r"(\|\s*limit\s+)(\d+)", re.IGNORECASE)
 _AGGREGATION_COMMANDS = re.compile(
     r"\|\s*(?:summarize|makeTimeseries|makeSmartTimeseries|fieldsRemove|fieldsKeep|lookup|join)\b",
     re.IGNORECASE,
 )
+
+
+def _ensure_min_limit(query: str, min_limit: int = _MIN_RESULT_LIMIT) -> str:
+    """Raise any explicit | limit N below min_limit up to min_limit.
+
+    Dynatrace queries with small limits (e.g. 100) frequently return empty
+    results for log workloads; this guarantees a useful minimum page size.
+    """
+    def _raise_limit(match: re.Match) -> str:
+        current = int(match.group(2))
+        if current < min_limit:
+            return match.group(1) + str(min_limit)
+        return match.group(0)
+
+    return _LIMIT_PATTERN.sub(_raise_limit, query)
 
 
 def _enrich_query(query: str) -> str:
@@ -27,7 +44,10 @@ def _enrich_query(query: str) -> str:
     Inserted before any trailing | sort or | limit clause.
     Skipped if the query already has `Log message` or uses aggregation commands
     (summarize, makeTimeseries, etc.) that are incompatible with per-record enrichment.
+
+    Also ensures the query never uses a result limit smaller than _MIN_RESULT_LIMIT.
     """
+    query = _ensure_min_limit(query)
     if "`Log message`" in query:
         return query
     if _AGGREGATION_COMMANDS.search(query):

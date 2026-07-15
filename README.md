@@ -91,15 +91,15 @@ Executes a DQL query and polls until results are ready.
 |---|---|---|---|---|
 | `query` | str | yes | — | Full DQL string |
 | `timeframe` | str | no | — | Time offset: `3d`, `1h`, `30m` |
-| `max_wait_seconds` | int | no | 30 | Polling timeout |
+| `max_wait_seconds` | int | no | 120 | Polling timeout |
 
 **Example queries:**
 
 ```
-fetch logs | limit 100
-fetch logs | filter contains(content, "my-service") | limit 50
-fetch logs, from:now()-24h | filter contains(content, "retry-stuck") | fields timestamp, content | limit 100
-fetch logs, from:now()-3d | filter status="ERROR" | fields timestamp, content | limit 200
+fetch logs | limit 2000
+fetch logs | filter contains(content, "my-service") | limit 2000
+fetch logs, from:now()-24h | filter contains(content, "retry-stuck") | fields timestamp, content | limit 2000
+fetch logs, from:now()-3d | filter status="ERROR" | fields timestamp, content | limit 2000
 ```
 
 > **Tip:** Use `from:now()-Xh` / `from:now()-Xd` directly in the DQL query to control the search

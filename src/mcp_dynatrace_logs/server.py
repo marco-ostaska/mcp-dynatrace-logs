@@ -47,12 +47,12 @@ async def fetch_logs(
                - Use matches(field, "pattern") for regex
                - Combine filters: | filter field1 == "value" AND field2 == "value"
                - Sort (NO 'by' keyword): | sort timestamp desc
-               - Limit: | limit 1000  (default — do NOT exceed 1000 unless user explicitly asks for more)
+               - Limit: | limit 2000  (default minimum — smaller values are automatically raised to 2000)
                - Common fields: content, severity, status, timestamp
 
                Examples:
-               - "fetch logs | filter contains(content, \"error\", caseSensitive: false) | sort timestamp desc | limit 1000"
-               - "fetch logs | filter severity == \"ERROR\" AND contains(content, \"order-id\", caseSensitive: false) | sort timestamp desc | limit 1000"
+               - "fetch logs | filter contains(content, \"error\", caseSensitive: false) | sort timestamp desc | limit 2000"
+               - "fetch logs | filter severity == \"ERROR\" AND contains(content, \"order-id\", caseSensitive: false) | sort timestamp desc | limit 2000"
 
                NOTE: The server automatically enriches your query to extract a readable
                'Log message' field from JSON and key=value log formats, unless your query

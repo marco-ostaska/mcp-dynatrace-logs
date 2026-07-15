@@ -170,7 +170,33 @@ def test_enrich_query_injects_block_when_no_fieldsadd():
     assert "Log message" in enriched
     # sort and limit must remain at the end
     assert enriched.index("sort timestamp desc") > enriched.index("Log message")
-    assert enriched.index("limit 10") > enriched.index("Log message")
+    assert enriched.index("limit 2000") > enriched.index("Log message")
+
+
+def test_enrich_query_ensures_min_limit_on_small_limit():
+    query = 'fetch logs | filter contains(content, "error") | sort timestamp desc | limit 100'
+    enriched = _enrich_query(query)
+    assert "limit 2000" in enriched
+
+
+def test_enrich_query_keeps_limit_above_min():
+    query = 'fetch logs | filter contains(content, "error") | sort timestamp desc | limit 5000'
+    enriched = _enrich_query(query)
+    assert "limit 5000" in enriched
+
+
+def test_enrich_query_ensures_min_limit_when_no_sort():
+    query = 'fetch logs | filter contains(content, "test") | limit 5'
+    enriched = _enrich_query(query)
+    assert "limit 2000" in enriched
+
+
+def test_enrich_query_injects_min_limit_when_absent():
+    query = 'fetch logs | filter contains(content, "test") | sort timestamp desc'
+    enriched = _enrich_query(query)
+    # No explicit limit present, only enrichment injected.
+    assert "fieldsAdd" in enriched
+    assert "Log message" in enriched
 
 
 def test_enrich_query_passthrough_when_log_message_present():
@@ -209,8 +235,8 @@ def test_enrich_query_with_only_limit():
     query = 'fetch logs | filter contains(content, "test") | limit 5'
     enriched = _enrich_query(query)
     assert "fieldsAdd" in enriched
-    # limit must be after the enrichment block
-    assert enriched.index("limit 5") > enriched.index("Log message")
+    # limit must be after the enrichment block and raised to the minimum
+    assert enriched.index("limit 2000") > enriched.index("Log message")
 
 
 async def test_fetch_logs_enriches_query(mock_client):
