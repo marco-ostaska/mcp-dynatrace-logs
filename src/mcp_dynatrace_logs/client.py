@@ -125,11 +125,19 @@ def _sanitize_response_for_error(response: httpx.Response) -> httpx.Response:
     httpx.HTTPStatusError carries both `exc.request` and `exc.response.request`.
     Sanitizing only the request attached to the exception leaves the original
     token accessible through `exc.response.request`; this removes it from both.
+
+    The response is reconstructed using the already-read decoded bytes
+    (`response.content`), and content-encoding/decoding headers are dropped so
+    httpx does not attempt to decompress the content again.
     """
     sanitized_request = _sanitize_request_for_error(response.request)
+    # Use decoded content and strip encoding headers to avoid double-decode.
+    headers = httpx.Headers(response.headers)
+    for name in ("content-encoding", "transfer-encoding"):
+        headers.pop(name, None)
     return httpx.Response(
         status_code=response.status_code,
-        headers=response.headers,
+        headers=headers,
         content=response.content,
         request=sanitized_request,
     )

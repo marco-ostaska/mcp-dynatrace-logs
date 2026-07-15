@@ -66,6 +66,22 @@ def test_sanitized_response_strips_authorization_from_response_request():
     assert "Bearer secret" not in str(sanitized.request.headers)
 
 
+def test_sanitized_response_preserves_gzip_content():
+    import gzip
+    request = httpx.Request("GET", "https://test.dynatrace.com", headers={"Authorization": "Bearer secret"})
+    original_payload = b'{"error":"unauthorized"}'
+    gzipped = gzip.compress(original_payload)
+    response = httpx.Response(
+        401,
+        content=gzipped,
+        headers={"content-encoding": "gzip", "content-type": "application/json"},
+        request=request,
+    )
+    sanitized = _sanitize_response_for_error(response)
+    assert sanitized.content == original_payload
+    assert "authorization" not in sanitized.request.headers
+
+
 @pytest.mark.parametrize(
     "hostname",
     [
