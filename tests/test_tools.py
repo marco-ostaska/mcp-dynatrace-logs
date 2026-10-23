@@ -37,10 +37,17 @@ async def test_fetch_logs_with_timeframe(mock_client):
 async def test_fetch_logs_timeout(mock_client):
     mock_client.execute.return_value = "token=="
     mock_client.poll.return_value = {"state": "RUNNING", "progress": 10}
-    result = await fetch_logs(mock_client, query="fetch logs", max_wait_seconds=0)
+    result = await fetch_logs(mock_client, query="fetch logs", max_wait_seconds=1)
     assert result["state"] == "TIMEOUT"
     assert result["metadata"]["request_token"] == "token=="
     assert "request_token" in result["message"]
+
+
+async def test_fetch_logs_max_wait_validation(mock_client):
+    with pytest.raises(ValueError, match="max_wait_seconds"):
+        await fetch_logs(mock_client, query="fetch logs", max_wait_seconds=0)
+    with pytest.raises(ValueError, match="max_wait_seconds"):
+        await fetch_logs(mock_client, query="fetch logs", max_wait_seconds=601)
 
 
 async def test_fetch_logs_poll_failed(mock_client):
@@ -73,6 +80,16 @@ async def test_fetch_logs_poll_network_error(mock_client):
     with patch("mcp_dynatrace_logs.tools.asyncio.sleep"):
         result = await fetch_logs(mock_client, query="fetch logs", max_wait_seconds=1)
     assert result["state"] == "ERROR"
+    assert "connection refused" in result["error"]
+    assert result["metadata"]["request_token"] == "token=="
+
+
+async def test_poll_query_network_error_preserves_message(mock_client):
+    mock_client.poll.side_effect = httpx.ConnectError("connection refused")
+    with patch("mcp_dynatrace_logs.tools.asyncio.sleep"):
+        result = await poll_query(mock_client, request_token="token==")
+    assert result["state"] == "ERROR"
+    assert "connection refused" in result["error"]
     assert result["metadata"]["request_token"] == "token=="
 
 
@@ -120,18 +137,19 @@ async def test_poll_query_http_error(mock_client):
     assert result["status_code"] == 401
 
 
-async def test_fetch_logs_default_timeout_is_120(mock_client):
+async def test_fetch_logs_default_timeout_is_120():
     """Default max_wait_seconds must be 120."""
     import inspect
     from mcp_dynatrace_logs.tools import fetch_logs
     sig = inspect.signature(fetch_logs)
     assert sig.parameters["max_wait_seconds"].default == 120
+    assert sig.parameters["max_wait_seconds"].annotation is int
 
 
 async def test_fetch_logs_timeout_message_instructs_poll(mock_client):
     mock_client.execute.return_value = "token=="
     mock_client.poll.return_value = {"state": "RUNNING", "progress": 10}
-    result = await fetch_logs(mock_client, query="fetch logs", max_wait_seconds=0)
+    result = await fetch_logs(mock_client, query="fetch logs", max_wait_seconds=1)
     assert result["state"] == "TIMEOUT"
     # Message must instruct Claude to call poll_query immediately
     assert "poll_query" in result["message"]
@@ -170,7 +188,33 @@ def test_enrich_query_injects_block_when_no_fieldsadd():
     assert "Log message" in enriched
     # sort and limit must remain at the end
     assert enriched.index("sort timestamp desc") > enriched.index("Log message")
-    assert enriched.index("limit 10") > enriched.index("Log message")
+    assert enriched.index("limit 2000") > enriched.index("Log message")
+
+
+def test_enrich_query_ensures_min_limit_on_small_limit():
+    query = 'fetch logs | filter contains(content, "error") | sort timestamp desc | limit 100'
+    enriched = _enrich_query(query)
+    assert "limit 2000" in enriched
+
+
+def test_enrich_query_keeps_limit_above_min():
+    query = 'fetch logs | filter contains(content, "error") | sort timestamp desc | limit 5000'
+    enriched = _enrich_query(query)
+    assert "limit 5000" in enriched
+
+
+def test_enrich_query_ensures_min_limit_when_no_sort():
+    query = 'fetch logs | filter contains(content, "test") | limit 5'
+    enriched = _enrich_query(query)
+    assert "limit 2000" in enriched
+
+
+def test_enrich_query_injects_min_limit_when_absent():
+    query = 'fetch logs | filter contains(content, "test") | sort timestamp desc'
+    enriched = _enrich_query(query)
+    # No explicit limit present, only enrichment injected.
+    assert "fieldsAdd" in enriched
+    assert "Log message" in enriched
 
 
 def test_enrich_query_passthrough_when_log_message_present():
@@ -209,8 +253,8 @@ def test_enrich_query_with_only_limit():
     query = 'fetch logs | filter contains(content, "test") | limit 5'
     enriched = _enrich_query(query)
     assert "fieldsAdd" in enriched
-    # limit must be after the enrichment block
-    assert enriched.index("limit 5") > enriched.index("Log message")
+    # limit must be after the enrichment block and raised to the minimum
+    assert enriched.index("limit 2000") > enriched.index("Log message")
 
 
 async def test_fetch_logs_enriches_query(mock_client):
